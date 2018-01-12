@@ -1,0 +1,5 @@
+vendor/
+bin/
+release/
+*.swp
+.DS_Store
