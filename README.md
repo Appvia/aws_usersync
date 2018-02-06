@@ -1,6 +1,6 @@
 # aws_usersync
 
-[![Build Status](https://travis-ci.org/appvia/aws_usersync.svg?branch=master)](https://travis-ci.org/appvia/aws_usersync)
+[![Build_Status](https://circleci.com/gh/Appvia/aws_usersync.svg?style=svg)](https://circleci.com/gh/Appvia/aws_usersync)
 
 This is used for syncing users from AWS to the local machine as well as their user key. It runs as a daemon and polls with whatever interval you define. By default it is set to run only once and exit, but this can be overriden.
 

@@ -1,0 +1,36 @@
+version: 2
+jobs:
+  build:
+    docker:
+      # specify the version
+      - image: circleci/golang:1.9
+    working_directory: /go/src/github.com/appvia/aws_usersync
+    steps:
+      - checkout
+      - run: make test
+
+  release:
+    docker:
+      - image: circleci/golang:1.9
+    working_directory: /go/src/github.com/appvia/aws_usersync
+    steps:
+      - checkout
+      - run: go get github.com/mitchellh/gox
+      - run: go get github.com/tcnksm/ghr
+      - run: mkdir ./bin
+      - run: gox -osarch="linux/amd64" -output=./bin/$CIRCLE_PROJECT_REPONAME-$CIRCLE_TAG
+      - run: git config --global user.name jon-shanks
+      - run: ghr $CIRCLE_TAG ./bin/
+
+workflows:
+  version: 2
+  run_release:
+    jobs:
+      - build:
+      - release:
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+
