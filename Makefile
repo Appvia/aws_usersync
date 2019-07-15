@@ -6,7 +6,7 @@ ROOT_DIR=${PWD}
 HARDWARE=$(shell uname -m)
 GIT_SHA=$(shell git --no-pager describe --always --dirty)
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%I:%M:%S%p')
-VERSION ?= $(shell awk '/Version.*=/ { print $$3 }' cmd/aws_usersync/main.go | sed 's/"//g')
+VERSION ?= $(shell awk '/version .*=/ { print $$3 }' cmd/aws_usersync/main.go | sed 's/"//g')
 DEPS=$(shell go list -f '{{range .TestImports}}{{.}} {{end}}' ./...)
 PACKAGES=$(shell go list ./...)
 LFLAGS ?= -X main.GitSHA=${GIT_SHA}
@@ -32,7 +32,7 @@ build:
 static: golang deps
 	@echo "--> Compiling the static binary"
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux go build -a -tags netgo -ldflags "-w ${LFLAGS}" -o bin/${NAME} cmd/${NAME}/*.go
+	CGO_ENABLED=0 GOOS=linux go build -a -tags netgo -ldflags "-w ${LFLAGS}" -o bin/${NAME}-${VERSION}-linux-amd64 cmd/${NAME}/*.go
 
 docker-release:
 	@echo "--> Building a release image"
