@@ -10,7 +10,7 @@ VERSION ?= $(shell awk '/version .*=/ { print $$3 }' cmd/aws_usersync/main.go | 
 DEPS=$(shell go list -f '{{range .TestImports}}{{.}} {{end}}' ./...)
 PACKAGES=$(shell go list ./...)
 LFLAGS ?= -X main.GitSHA=${GIT_SHA}
-VETARGS ?= -asmdecl -atomic -bool -buildtags -copylocks -methods -nilfunc -printf -rangeloops -structtags -unsafeptr
+VETARGS ?= -asmdecl -atomic -bool -buildtags -copylocks -methods -nilfunc -printf -rangeloops -structtag -unsafeptr
 
 .PHONY: test build static release lint cover vet glide-install
 
@@ -29,7 +29,7 @@ build:
 	mkdir -p bin
 	GOOS=linux go build -ldflags "${LFLAGS}" -o bin/${NAME} cmd/${NAME}/*.go
 
-static: golang deps
+static: golang glide-install
 	@echo "--> Compiling the static binary"
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux go build -a -tags netgo -ldflags "-w ${LFLAGS}" -o bin/${NAME}-${VERSION}-linux-amd64 cmd/${NAME}/*.go
@@ -44,9 +44,6 @@ release: static
 	mkdir -p release
 	gzip -c bin/${NAME} > release/${NAME}_${VERSION}_linux_${HARDWARE}.gz
 	rm -f release/${NAME}
-
-deps:
-	@echo "--> Installing build dependencies"
 
 vet:
 	@echo "--> Running go vet $(VETARGS) ."
@@ -83,7 +80,7 @@ glide-install:
 	@go get github.com/Masterminds/glide
 	@glide install --strip-vendor
 
-test: deps
+test:
 	@echo "--> Running the tests"
 	@if [ ! -d "vendor" ]; then \
 		make glide-install; \
