@@ -56,7 +56,7 @@ To run the application you need to set environment variables or have relevant ac
 ```
 export AWS_ACCESS_KEY_ID=12345678893
 export AWS_SECRET_ACCESS_KEY=30302499439434
-./bin/aws_usersync -g="group""
+./bin/aws_usersync -g="group"
 ```
 
 This will grab all the users within that group and add them locally with relevant keys as a one time run, to run this at an interval of 5 minutes
@@ -71,6 +71,13 @@ For debugging issues you can run it in debug mode
 ```
 ./bin/aws_usersync -o=false -i=5 -g="group1" -L=debug
 ```
+
+This is also available as a Docker image:
+```
+docker run -v /etc/:/etc/ -v /home/:/home/ quay.io/appvia/aws_usersync -o=false -i=5 -g="group1"
+```
+
+This needs to mount the /etc/ and /home/ directories on the host so that it can manage users and SSH keys.
 
 ##### Notes
 This is new and needs some cleanup on the code really and improving as it's a bit jumbled together in areas, but there are retrospective

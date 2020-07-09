@@ -1,35 +1,115 @@
 version: 2
 jobs:
-  build:
+  run_tests:
     docker:
-      # specify the version
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.14.3
     working_directory: /go/src/github.com/appvia/aws_usersync
     steps:
       - checkout
-      - run: make test
+      - run:
+          name: Run tests
+          command: make test
 
-  release:
+  build_static_binary:
     docker:
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.14.3
     working_directory: /go/src/github.com/appvia/aws_usersync
     steps:
       - checkout
-      - run: go get github.com/tcnksm/ghr
-      - run: mkdir ./bin
-      - run: make static
-      - run: git config --global user.name jon-shanks
-      - run: ghr $CIRCLE_TAG ./bin/
+      - run:
+          name: Create static binary
+          command: make static
+
+  release_static_binary:
+    docker:
+      - image: circleci/golang:1.14.3
+    working_directory: /go/src/github.com/appvia/aws_usersync
+    steps:
+      - checkout
+      - run:
+          name: Create static binary for release
+          environment:
+            VERSION: ${CIRCLE_TAG}
+            GIT_USERNAME: appvia
+          command: make static
+      - run:
+          name: Create Github release
+          command: |
+            go get github.com/tcnksm/ghr
+            git config --global user.name ${GIT_USERNAME}
+            [[ ${CIRCLE_TAG} == *"-rc"* ]] && ghr -u ${GIT_USERNAME} -r aws_usersync -prerelease -replace ${CIRCLE_TAG} ./bin/ || ghr -u ${GIT_USERNAME} -r aws_usersync -soft ${CIRCLE_TAG} ./bin/
+
+  build_docker_image:
+    docker:
+      - image: circleci/golang:1.14.3
+    working_directory: /go/src/github.com/appvia/aws_usersync
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Create docker image
+          command: make docker
+
+  push_docker_tagged_image: &docker_push
+    docker:
+      - image: circleci/golang:1.14.3
+    working_directory: /go/src/github.com/appvia/aws_usersync
+    environment:
+      VERSION: ${CIRCLE_TAG}
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Login to docker registry
+          command: docker login -u ${QUAY_USERNAME} -p ${QUAY_PASSWORD} quay.io
+      - run:
+          name: Push docker image to registry
+          command: make docker-release
+
+  push_docker_latest_image:
+    <<: *docker_push
+    environment:
+      VERSION: "latest"
 
 workflows:
   version: 2
-  run_release:
+  test_build_release:
     jobs:
-      - build
-      - release:
+      - run_tests:
+          filters:
+            tags:
+              only: /.*/
+      - build_static_binary:
+          requires:
+            - run_tests
+          filters:
+            branches:
+              ignore: master
+      - build_docker_image:
+          requires:
+            - run_tests
+          filters:
+            branches:
+              ignore: master
+      - release_static_binary:
+          requires:
+            - run_tests
           filters:
             tags:
               only: /^v.*/
             branches:
               ignore: /.*/
-
+      - push_docker_tagged_image:
+          requires:
+            - run_tests
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+      - push_docker_latest_image:
+          requires:
+            - run_tests
+          filters:
+            branches:
+              only: master

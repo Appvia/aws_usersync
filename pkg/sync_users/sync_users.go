@@ -19,6 +19,16 @@ const (
 	SSHDir             = ".ssh"
 )
 
+// Define variables for host commands and arguments
+var (
+	userAddCmd string
+	groupAddCmd string
+	userDelCmd string
+	userAddArgs []string
+	groupAddArgs []string
+	userDelArgs []string
+)
+
 // UserList structure to hold the details of aws users, local users and ignored users
 type UserList struct {
 	IgnoredUsers []string
@@ -32,6 +42,58 @@ type awsUser struct {
 	SudoGroup string
 	Keys      []string
 	localUser *user.User
+}
+
+func init() {
+	if err := setHostCommands(); err != nil {
+		log.Fatal(fmt.Sprintf("Failed trying to set host commands: %v", err))
+	}
+}
+
+// alpine's commands are slightly different to other linux distros so if we're running inside
+// a docker container, set the exec commands to the alpine versions
+func setHostCommands() error {
+	container, err := runningInContainer()
+	if err != nil {
+		log.Error("Could not determine if running inside a docker container or not")
+		return err
+	}
+
+	if container == true {
+		// set to alpine commands
+		log.Debug("Running in a container, using alpine Linux commands...")
+		userAddCmd = "adduser"
+		userAddArgs = []string{"-D", "-s", "/bin/bash"} // don't set a password, set login shell to /bin/bash
+		groupAddCmd = "addgroup"
+		userDelCmd = "deluser"
+		userDelArgs = []string{"--remove-home"}
+	} else {
+		log.Debug("Not running in a container, using standard Linux commands...")
+		userAddCmd = "useradd"
+		userAddArgs = []string{"-p", "123", "-U", "-m"} // set pass to 123, create home dir
+		groupAddCmd = "usermod"
+		groupAddArgs = []string{"-a", "-G"}
+		userDelCmd = "userdel"
+		userDelArgs = []string{"-r"}
+	}
+	return nil
+}
+
+// Check whether this is running in a docker container or not
+func runningInContainer() (bool, error) {
+	_, err := exec.Command("grep", "-q", "docker", "/proc/1/cgroup").Output()
+	if err != nil {
+		if err.Error() == "exit status 1" {
+			// not running in a docker container
+			return false, nil
+		} else {
+			// something went wrong
+			return false, err
+		}
+	} else {
+		// running in a docker container
+		return true, nil
+	}
 }
 
 // Initiate the user function
@@ -79,7 +141,7 @@ func stringInSlice(a string, list []string) bool {
 	return false
 }
 
-// Clean up any users that are no longer suppose to be on the box
+// Clean up any users that are no longer supposed to be on the box
 func (u *UserList) Cleanup() error {
 	delUsers := GetArrayDiff(u.AwsUsers, u.LocalUsers)
 	for _, usr := range delUsers {
@@ -101,9 +163,11 @@ func RemoveUser(usr string) error {
 	if err != nil {
 		return err
 	}
-	CMD := "userdel"
-	CMD_ARGS := []string{"-r", u.Username}
-	if _, err := exec.Command(CMD, CMD_ARGS...).Output(); err != nil {
+
+	// put arguments in the correct order
+	CMD_ARGS := append(userDelArgs, u.Username)
+
+	if _, err := exec.Command(userDelCmd, CMD_ARGS...).Output(); err != nil {
 		log.Error(fmt.Sprintf("Error deleting user %v", usr))
 		return err
 	}
@@ -138,6 +202,12 @@ func GetArrayDiff(k1 []string, k2 []string) []string {
 
 // Loop through the keys and call add key to add key to the box
 func Keys(l *user.User, kp string, ks []string) error {
+	// create ssh directory if needed
+	if err := os.MkdirAll(sshDirPath(l), 700); err != nil {
+		log.Debug(fmt.Sprintf("Error creating %v", sshDirPath(l)))
+		return err
+	}
+
 	f, err := os.Create(kp)
 	defer f.Close()
 	if err != nil {
@@ -234,34 +304,62 @@ func GetAllUsers() ([]string, error) {
 	return users, scanner.Err()
 }
 
-// Add user onto the system using useradd exec
+// Add user onto the system
 func (l *awsUser) addUser() error {
 	if l.localUser == nil {
-		CMD_ARGS := []string{"-p", "123", "-U", "-m", l.iamUser, "-G", l.SudoGroup}
-		_, err := exec.Command("useradd", CMD_ARGS...).Output()
+		log.Info(fmt.Sprintf("Creating user %v", l.iamUser))
+
+		// put arguments in the correct order
+		CMD_ARGS := append(userAddArgs, l.iamUser)
+
+		_, err := exec.Command(userAddCmd, CMD_ARGS...).Output()
 		if err != nil {
 			return err
 		}
-		log.Info(fmt.Sprintf("Creating user %v", l.iamUser))
-		lusr, _ := user.Lookup(l.iamUser)
-		l.localUser = lusr
+
+		luser, _ := user.Lookup(l.iamUser)
+		l.localUser = luser
 	}
 	return nil
 }
 
-// Sync all users and keys onto the coreos host this is the primary function
+// Add user to sudo group
+func (l *awsUser) addUserToSudoGroup() error {
+	if l.localUser != nil {
+		log.Info(fmt.Sprintf("Adding user %v to %v group", l.localUser.Username, l.SudoGroup))
+
+		// put arguments in the correct order
+		CMD_ARGS := append([]string{l.localUser.Username}, groupAddArgs...)
+		CMD_ARGS = append(CMD_ARGS, l.SudoGroup)
+
+		_, err := exec.Command(groupAddCmd, CMD_ARGS...).Output()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Sync all users and keys onto the host
 func (l *awsUser) Sync() error {
+	// check if the iam user has a user created for them
 	usr, err := user.Lookup(l.iamUser)
 	if err != nil {
 		if err := l.addUser(); err != nil {
-			log.Debug("Failed on calling addUser")
+			log.Error("Failed trying to add user")
+			return err
+		}
+
+		if err := l.addUserToSudoGroup(); err != nil {
+			log.Error(fmt.Sprintf("Failed trying to add user %v to %v group", l.localUser.Username, l.SudoGroup))
 			return err
 		}
 	} else {
 		l.localUser = usr
 	}
+
 	if err := l.DoKeys(); err != nil {
-		log.Debug("Failed on calling DoKeys")
+		log.Error("Failed on calling DoKeys")
 		return err
 	}
 	return nil

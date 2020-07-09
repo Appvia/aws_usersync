@@ -18,7 +18,7 @@ import (
 
 var (
 	// version for the build
-	version = "0.1.2"
+	version = "0.2.0"
 	// GitSHA for the build
 	GitSHA = "unknown"
 )
@@ -35,16 +35,17 @@ type userData struct {
 // Define variables flag and standard
 var (
 	keyEncoding = flag.String("e", "SSH", "SSH Key encoding type ssh-rsa or pem, defaults to SSH")
-	sudoGroup   = flag.String("S", "sudo", "Group for the users to be part of for sudo, defaults to sudo group")
+	sudoGroup   = flag.String("S", "sudo", "Group for the users to be part of for sudo access on the host")
 	group       = flag.String("g", "", "The group in AWS that contains the users")
 	versionShow = flag.Bool("v", false, "Display the version")
 	interval    = flag.Int("i", 30, "The frequency to poll in Minutes, for updates from the cloud provider")
-	ignoreusers = flag.String("I", "root,core", "Specify comma separated list of users to ignore on the system so they wont be attempted to be removed")
+	ignoreusers = flag.String("I", "", "Specify a comma separated list of users to ignore on the system so that they won't be attempted to be removed (users present on the host before starting the sync will not be removed)")
 	onetime     = flag.Bool("o", true, "One time run as oppose polling and daemonizing")
 	logLevel    = flag.String("L", "", "Set the log level: Error, Info, Debug")
-	region      = flag.String("r", "eu-west-1", "AWS Region, defaults to eu-west-1")
+	region      = flag.String("r", "eu-west-1", "AWS Region")
 	binName     = "coreos_awsusermgt"
 	grpList     []string
+	hostUsers   []string
 )
 
 func init() {
@@ -53,6 +54,12 @@ func init() {
 	sess := session.Must(session.NewSession())
 	// set Iam service
 	iam.NewIAM(sess, cfg)
+	// get users present on host before sync so that they won't be removed
+	var err error
+	hostUsers, err = sync_users.GetAllUsers()
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Error occurred getting host users: %v", err))
+	}
 }
 
 // Split the group list into an array
@@ -130,7 +137,7 @@ func (u userMap) userSync(grp string) error {
 			return err
 		}
 	}
-	ignored := splitString(*ignoreusers)
+	ignored := append(hostUsers, splitString(*ignoreusers)...)
 	userCmp, err := sync_users.CmpNew(IamUsers, ignored)
 	if err != nil {
 		return err

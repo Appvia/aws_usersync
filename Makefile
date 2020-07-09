@@ -1,16 +1,17 @@
 NAME=aws_usersync
-AUTHOR=Jon Shanks
-AUTHOR_EMAIL=jon.shanks@gmail.com
+AUTHOR=appvia
+AUTHOR_EMAIL=info@appvia.io
 REGISTRY=quay.io
 ROOT_DIR=${PWD}
 HARDWARE=$(shell uname -m)
 GIT_SHA=$(shell git --no-pager describe --always --dirty)
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%I:%M:%S%p')
-VERSION ?= $(shell awk '/version .*=/ { print $$3 }' cmd/aws_usersync/main.go | sed 's/"//g')
+VERSION ?= v$(shell awk '/version .*=/ { print $$3 }' cmd/aws_usersync/main.go | sed 's/"//g')
 DEPS=$(shell go list -f '{{range .TestImports}}{{.}} {{end}}' ./...)
 PACKAGES=$(shell go list ./...)
 LFLAGS ?= -X main.GitSHA=${GIT_SHA}
 VETARGS ?= -asmdecl -atomic -bool -buildtags -copylocks -methods -nilfunc -printf -rangeloops -structtag -unsafeptr
+CGO_ENABLED ?= 0
 
 .PHONY: test build static release lint cover vet glide-install
 
@@ -20,24 +21,23 @@ golang:
 	@echo "--> Go Version"
 	@go version
 
-build:
-	@echo "--> Running the tests"
-	@if [ ! -d "vendor" ]; then \
-    make glide-install; \
-  fi
+build: glide-install
 	@echo "--> Compiling the project"
 	mkdir -p bin
-	GOOS=linux go build -ldflags "${LFLAGS}" -o bin/${NAME} cmd/${NAME}/*.go
+	CGO_ENABLED=${CGO_ENABLED} GOOS=linux go build -ldflags "${LFLAGS}" -o bin/${NAME} cmd/${NAME}/*.go
 
 static: golang glide-install
 	@echo "--> Compiling the static binary"
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux go build -a -tags netgo -ldflags "-w ${LFLAGS}" -o bin/${NAME}-${VERSION}-linux-amd64 cmd/${NAME}/*.go
+	CGO_ENABLED=${CGO_ENABLED} GOOS=linux go build -a -tags netgo -ldflags "-w ${LFLAGS}" -o bin/${NAME}-${VERSION}-linux-amd64 cmd/${NAME}/*.go
 
-docker-release:
-	@echo "--> Building a release image"
-	@make static
-	@make docker
+docker:
+	@echo "--> Building docker image"
+	@docker build -t ${NAME} .
+
+docker-release: docker
+	@docker tag ${NAME} ${REGISTRY}/${AUTHOR}/${NAME}:${VERSION}
+	@echo "--> Pushing docker image to ${REGISTRY}/${AUTHOR}/${NAME}:${VERSION}"
 	@docker push ${REGISTRY}/${AUTHOR}/${NAME}:${VERSION}
 
 release: static
